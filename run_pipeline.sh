@@ -2,15 +2,41 @@
 set -e  # Exit on error
 set -u  # Error on undefined variables
 
-# === Source configuration file ===
-source "$(dirname "${BASH_SOURCE[0]}")/dock_with_vina.sh"
-echo "$(dirname "${BASH_SOURCE[0]}")/dock_with_vina.sh"
+# === Source configuration file (variables only, not environment) ===
+# Don't source dock_with_vina.sh as it might interfere with conda environment
+# source "$(dirname "${BASH_SOURCE[0]}")/dock_with_vina.sh"
 
-# === Set script directory ===
+# === Set variables manually (from dock_with_vina.sh) ===
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo "Script directory: $SCRIPT_DIR"
 
-BASE_DIR="$SCRIPT_DIR/$RECEPTOR_PREFIX/experiment_epoch_${EPOCH}_mols_${MOLS}_bs_${BS}_pdbid_${PDBID}"
+# Set variables that would normally come from dock_with_vina.sh
+EPOCH="$1"
+MOLS="$2" 
+BS="$3"
+PDBID="$4"
+AUR="$5"
+EXP="$6"
+
+# Set receptor configuration based on PDBID/Aurora
+if [[ "$PDBID" == "4af3" ]] || [[ "$AUR" == "B" ]]; then
+    RECEPTOR="$SCRIPT_DIR/4af3/4af3.pdb"   #4af3_A_rec_reduce_noflip.pdb"
+    RECEPTOR_PREFIX="4af3"
+    CENTER="21 -21 12"
+elif [[ "$PDBID" == "4ceg" ]] || [[ "$AUR" == "A" ]]; then
+    RECEPTOR="$SCRIPT_DIR/4ceg/4ceg_1_protein.pdb"
+    RECEPTOR_PREFIX="4ceg_receptor"
+    CENTER="10 20 5"
+else
+    echo "Error: --pdbid argument must be '4af3' or '4ceg' (or aurora A/B)"
+    echo "Received PDBID='$PDBID', AURORA='$AUR'"
+    exit 1
+fi
+
+SIZE="40 40 40"
+EXHAUST="8"
+
+BASE_DIR="$SCRIPT_DIR/$RECEPTOR_PREFIX/experiment_${EXP}_${EPOCH}_${MOLS}_${BS}_${PDBID}"
 LIGAND_DIR="$BASE_DIR/ligands"
 PREPARED_LIG_DIR="$BASE_DIR/prepared_ligands"
 PREPARED_REC_DIR="$SCRIPT_DIR/$RECEPTOR_PREFIX"
@@ -22,7 +48,8 @@ mkdir -p "$PREPARED_LIG_DIR" "$OUTPUT_DIR"
 
 # === Prepare receptor ===
 echo "Preparing receptor..."
-mk_prepare_receptor.py -i "$RECEPTOR" -o "$PREPARED_REC_DIR/$RECEPTOR_PREFIX" -p -v -g --box_size $SIZE --box_center $CENTER --allow_bad_res
+mk_prepare_receptor.py -i "$RECEPTOR" -o "$PREPARED_REC_DIR/$RECEPTOR_PREFIX" -p -v -g --box_size $SIZE --box_center $CENTER --allow_bad_res 
+# mk_prepare_receptor.py --pdb "$RECEPTOR" -o "$PREPARED_REC_DIR/$RECEPTOR_PREFIX" --box_size $SIZE --box_center $CENTER --allow_bad_res
 
 echo "Running autogrid..."
 cd "$PREPARED_REC_DIR" || exit 1

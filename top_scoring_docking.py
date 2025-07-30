@@ -5,8 +5,15 @@ import pandas as pd
 from matplotlib.patches import Wedge
 from matplotlib.cm import ScalarMappable
 from matplotlib.lines import Line2D
-
 import matplotlib.pyplot as plt
+from pathlib import Path
+import sys
+
+# Add project root to path to import from scripts
+project_root = Path(__file__).parent.parent.parent
+sys.path.append(str(project_root))
+
+from load_config_paths import PipelinePaths
 
 def postprocess_vina_results(input_path, output_path):
     # Read and filter lines with at least one comma
@@ -26,7 +33,7 @@ def postprocess_vina_results(input_path, output_path):
 
 
 
-def plot_sa_vs_affinity(sa_score_csv, vina_csv):
+def plot_sa_vs_affinity(sa_score_csv, vina_csv, output_plot_name, pareto_csv_path):
     # Read CSVs
     sa_df = pd.read_csv(sa_score_csv)
     vina_df = pd.read_csv(vina_csv)
@@ -153,7 +160,6 @@ def plot_sa_vs_affinity(sa_score_csv, vina_csv):
         ax.plot(pareto_front[:, 0], pareto_front[:, 1], color='green', linewidth=2, marker='o', markersize=4, label='Pareto frontier')
         # Save Pareto front rows to CSV
         pareto_df = merged.loc[pareto_indices]
-        pareto_csv_path = f"{experiment_dir}/pareto_front.csv"
         os.makedirs(os.path.dirname(pareto_csv_path), exist_ok=True)
         pareto_df.to_csv(pareto_csv_path, index=False)
         # Add to legend
@@ -180,44 +186,52 @@ def plot_sa_vs_affinity(sa_score_csv, vina_csv):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Wrapper for CADD pipeline targeted to Aurora protein kinases.")
+    parser = argparse.ArgumentParser(description="Post-process Vina docking results and create analysis plots.")
     parser.add_argument('--num_gen', type=int, required=False, default=0, help='Desired number of generated molecules (int, positive)')
     parser.add_argument('--epoch', type=int, required=False, default=0, help='Epoch number the model will use to generate molecules (int, 0-99)')
     parser.add_argument('--known_binding_site', type=str, required=False, default='0', help='Allow model to use binding site information (True, False)')
-    parser.add_argument('--aurora', type=str, required=True, default='B', help='Aurora kinase type (str, A, B)')
-    parser.add_argument('--pdbid', type=str, required=True, default='4af3', help='Aurora kinase type (str, A, B)')
+    parser.add_argument('--aurora', type=str, required=False, default='B', help='Aurora kinase type (str, A, B)')
+    parser.add_argument('--pdbid', type=str, required=False, default='4af3', help='PDB ID (str)')
+    parser.add_argument('--experiment', type=str, required=False, default='default', help='Experiment name (str)')
     args = parser.parse_args()
+
+    # Initialize paths
+    paths = PipelinePaths()
 
     epoch = args.epoch
     num_gen = args.num_gen
     known_binding_site = args.known_binding_site
     aurora = args.aurora
     pdbid = args.pdbid.lower()
+    experiment = args.experiment
 
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    parent_dir = os.path.abspath(os.path.join(script_dir, os.pardir))
-    # sdf_folder = os.path.join(parent_dir, f"trained_model_reduced_dataset_100_epochs/gen_mols_epoch_{epoch}_mols_{num_gen}_bs_{known_binding_site}/sdf")
-    # known_inhib_file = os.path.join(script_dir, f"data/aurora_kinase_{aurora}_interactions.csv")
-    results_dir = os.path.join(parent_dir, f"post_hoc_filtering/results_epoch_{epoch}_mols_{num_gen}_bs_{known_binding_site}_pdbid_{pdbid}")
-    synth_csv = os.path.join(results_dir, f"top_50_sascore_{epoch}_{num_gen}_{known_binding_site}_{pdbid}.csv")
-    # lipinski_csv = os.path.join(results_dir, f"lipinski_pass_{epoch}_{num_gen}_{known_binding_site}_{aurora}.csv")
-    # tanimoto_inter_csv = os.path.join(results_dir, f"tanimoto_inter_{epoch}_{num_gen}_{known_binding_site}_{aurora}.csv")
+    # Use PipelinePaths to get consistent directory structure
+    vina_base_dir = paths.vina_box_docking_path(pdbid, experiment, epoch, num_gen, known_binding_site, pdbid)
     
-    # if aurora == "A":
-    #     aur_type = '4cfg'
-    # elif aurora == "B":
-    #     aur_type = '4af3'
-    # else:
-    #     raise ValueError("Aurora type must be 'A' or 'B'.")
-   
-    experiment_dir = os.path.join(script_dir, f"{pdbid}/experiment_epoch_{epoch}_mols_{num_gen}_bs_{known_binding_site}_pdbid_{pdbid}")
-    vina_csv = os.path.join(experiment_dir, f"vina_results.csv")
-    vina_postprocess = os.path.join(experiment_dir, "vina_results_postprocessed.csv")
-    output_plot_name = os.path.join(experiment_dir, "sa_vs_affinity_plot.png")
+    # Input files
+    vina_csv = os.path.join(vina_base_dir, "vina_results.csv")
+    synth_csv = paths.hope_box_results_path(experiment, epoch, num_gen, known_binding_site, pdbid, 'merged_scores.csv')
+    
+    # Output files
+    vina_postprocess = os.path.join(vina_base_dir, "vina_results_postprocessed.csv")
+    output_plot_name = os.path.join(vina_base_dir, "sa_vs_affinity_plot.png")
+    pareto_csv_path = os.path.join(vina_base_dir, "pareto_front.csv")
 
-
+    # Create output directories
     os.makedirs(os.path.dirname(vina_postprocess), exist_ok=True)
     os.makedirs(os.path.dirname(output_plot_name), exist_ok=True)
+
+    # Check if input files exist
+    if not os.path.exists(vina_csv):
+        print(f"Error: Vina results file not found: {vina_csv}")
+        exit(1)
+    
+    if not os.path.exists(synth_csv):
+        print(f"Error: Synthesizability scores file not found: {synth_csv}")
+        exit(1)
+
+    print(f"Processing Vina results from: {vina_csv}")
+    print(f"Using synthesizability scores from: {synth_csv}")
 
     postprocess_vina_results(
         vina_csv,
@@ -226,9 +240,15 @@ if __name__ == "__main__":
     
     plot_sa_vs_affinity(
         synth_csv,
-        vina_postprocess
+        vina_postprocess,
+        output_plot_name,
+        pareto_csv_path
     )
 
-    print("Results saved.")
+    print(f"Results saved:")
+    print(f"  Postprocessed Vina results: {vina_postprocess}")
+    print(f"  SA vs Affinity plot: {output_plot_name}")
+    print(f"  Pareto front: {pareto_csv_path}")
+    print("Analysis complete!")
 
     
